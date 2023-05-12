@@ -120,7 +120,7 @@ class ValidateQuoteForm(FormValidationAction):
         try:
             int(value)
         except TypeError:
-            dispatcher.utter_message(f"Number of persons must be an integer.")
+            dispatcher.utter_message("Number of persons must be an integer.")
             return {"quote_number_persons": None}
         except ValueError:
             dispatcher.utter_message("You must answer with a number.")
@@ -212,15 +212,15 @@ class ActionVerifyAddress(Action):
     def run(
         self, dispather: CollectingDispatcher, tracker: Tracker, domain: Dict
     ) -> List[EventType]:
-        address_slots = ["address_street",
-                         "address_city",
-                         "address_state",
-                         "address_zip"]
-
         verify_address = tracker.get_slot("verify_address")
 
         # Reset the address slots if user doesn't verify address so the change address form can collect new address.
         if not verify_address:
+            address_slots = ["address_street",
+                             "address_city",
+                             "address_state",
+                             "address_zip"]
+
             return [SlotSet(a, None) for a in address_slots]
 
         return [SlotSet("verify_address", verify_address)]
@@ -403,10 +403,10 @@ class ActionClaimStatus(Action):
 
         # Get the claim provided by the user.
         user_clm_id = tracker.get_slot("claim_id")
-        clm = next((c for c in MOCK_DATA["claims"] if str(c["claim_id"]) == user_clm_id), None)
-
-        # Display details about the selected claims.
-        if clm:
+        if clm := next(
+            (c for c in MOCK_DATA["claims"] if str(c["claim_id"]) == user_clm_id),
+            None,
+        ):
             formatted_date = str(datetime.datetime.strptime(str(clm["claim_date"]), "%Y%m%d").date())
             clm_params = {
                 "claim_date": formatted_date,
@@ -446,11 +446,10 @@ class ValidateGetClaimForm(FormValidationAction):
         if isinstance(claim_id, list):
             claim_id = next(tracker.get_latest_entity_values("claim_id"), None)
 
-        if str(claim_id) not in [clm["claim_id"] for clm in user_claims]:
-            dispatcher.utter_message("The Claim ID you entered is not valid. Please check and try again.")
-            return {"claim_id": None}
-        else:
+        if str(claim_id) in [clm["claim_id"] for clm in user_claims]:
             return {"claim_id": claim_id}
+        dispatcher.utter_message("The Claim ID you entered is not valid. Please check and try again.")
+        return {"claim_id": None}
 
 
 class ValidateClaimStatusForm(FormValidationAction):
@@ -553,12 +552,14 @@ class ActionFileNewClaimForm(Action):
 
         if tracker.get_slot("confirm_file_new_claim") == "yes":
             # Submit a new claim.
-            claim_id = "NC" + "".join([str(random.randint(0, 9)) for i in range(6)])
+            claim_id = "NC" + "".join([str(random.randint(0, 9)) for _ in range(6)])
             claim_obj = {
                 "claim_id": claim_id,
                 "claim_balance": tracker.get_slot("claim_amount_submit"),
-                "claim_date": datetime.datetime.strftime(datetime.datetime.today(), "%Y%m%d"),
-                "claim_status": "Pending"
+                "claim_date": datetime.datetime.strftime(
+                    datetime.datetime.now(), "%Y%m%d"
+                ),
+                "claim_status": "Pending",
             }
 
             MOCK_DATA["claims"].append(claim_obj)
@@ -786,35 +787,33 @@ class ValidatePayClaimForm(FormValidationAction):
             domain: "DomainDict",
     ) -> Optional[List[Text]]:
 
-        if tracker.get_slot("claim_balance") == 0:
-            return []
-
-        return slots_mapped_in_domain
+        return [] if tracker.get_slot("claim_balance") == 0 else slots_mapped_in_domain
 
     async def extract_amount_of_money(
             self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: Dict
     ) -> Dict[Text, Any]:
         # Check if the user provided a proper dollar amount.
-        if tracker.slots["requested_slot"] == "amount-of-money":
-            amount_to_pay = None
-            last_message = tracker.latest_message
+        if tracker.slots["requested_slot"] != "amount-of-money":
+            return
+        amount_to_pay = None
+        last_message = tracker.latest_message
 
-            # Check contents of latest message before for a valid dollar amount.
-            try:
-                ent = next(item for item in last_message["entities"] if item["entity"] == "amount-of-money")
-                amount_to_pay = ent["value"]
-                return {"amount-of-money": amount_to_pay}
-            except StopIteration:
-                pass
-
-            try:
-                ent = next(item for item in last_message["entities"] if item["entity"] == "number")
-                amount_to_pay = ent["value"]
-                return {"amount-of-money": amount_to_pay}
-            except StopIteration:
-                pass
-
+        # Check contents of latest message before for a valid dollar amount.
+        try:
+            ent = next(item for item in last_message["entities"] if item["entity"] == "amount-of-money")
+            amount_to_pay = ent["value"]
             return {"amount-of-money": amount_to_pay}
+        except StopIteration:
+            pass
+
+        try:
+            ent = next(item for item in last_message["entities"] if item["entity"] == "number")
+            amount_to_pay = ent["value"]
+            return {"amount-of-money": amount_to_pay}
+        except StopIteration:
+            pass
+
+        return {"amount-of-money": amount_to_pay}
 
     def validate_claim_id(
             self,
@@ -847,32 +846,32 @@ class ValidatePayClaimForm(FormValidationAction):
             tracker: Tracker,
             domain: DomainDict,
     ) -> Dict[Text, Any]:
-        if tracker.slots.get("requested_slot") == "claim_pay_amount":
-            claim_id = tracker.get_slot("claim_id")
-            payment_amount = tracker.get_slot("claim_pay_amount")
-            clm = next((c for c in MOCK_DATA["claims"] if str(c["claim_id"]) == claim_id), None)
+        if tracker.slots.get("requested_slot") != "claim_pay_amount":
+            return {"claim_pay_amount": None}
+        claim_id = tracker.get_slot("claim_id")
+        payment_amount = tracker.get_slot("claim_pay_amount")
+        clm = next((c for c in MOCK_DATA["claims"] if str(c["claim_id"]) == claim_id), None)
 
-            # Check that a valid number is provided.
-            try:
-                payment_amount = float(payment_amount)
-            except TypeError:
-                dispatcher.utter_message("Please enter a valid number as your payment amount.")
-                return {"claim_pay_amount": None}
+        # Check that a valid number is provided.
+        try:
+            payment_amount = float(payment_amount)
+        except TypeError:
+            dispatcher.utter_message("Please enter a valid number as your payment amount.")
+            return {"claim_pay_amount": None}
 
-            # Check that the payment is greater than zero.
-            if payment_amount <= 0:
-                dispatcher.utter_message("Your payment must be greater than $0.")
-                return {"claim_pay_amount": None}
+        # Check that the payment is greater than zero.
+        if payment_amount <= 0:
+            dispatcher.utter_message("Your payment must be greater than $0.")
+            return {"claim_pay_amount": None}
 
             # Check that the payment amount doesn't exceed the amount owed on the claim.
-            if payment_amount > clm["claim_balance"]:
-                dispatcher.utter_message(f"The amount you want to pay, ${str(payment_amount)}, is greater than the amount "
-                                         f"owed, ${str(clm['claim_balance'])}")
-                return {"claim_pay_amount": clm["claim_balance"], "claim_balance": clm["claim_balance"]}
+        if payment_amount > clm["claim_balance"]:
+            dispatcher.utter_message(
+                f"The amount you want to pay, ${payment_amount}, is greater than the amount owed, ${str(clm['claim_balance'])}"
+            )
+            return {"claim_pay_amount": clm["claim_balance"], "claim_balance": clm["claim_balance"]}
 
-            return {"claim_pay_amount": payment_amount, "claim_balance": clm["claim_balance"]}
-
-        return {"claim_pay_amount": None}
+        return {"claim_pay_amount": payment_amount, "claim_balance": clm["claim_balance"]}
 
 
 def claims_scroll(curr_page, scroll_status):
@@ -885,9 +884,8 @@ def claims_scroll(curr_page, scroll_status):
             curr_page += 1
     elif scroll_status == "init":
         curr_page = 0
-    else:
-        if curr_page > 0:
-            curr_page -= 1
+    elif curr_page > 0:
+        curr_page -= 1
 
     # Get claims on the page.
     page_claims = MOCK_DATA["claims"][curr_page]
